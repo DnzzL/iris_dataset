@@ -1,0 +1,154 @@
+---
+title: "Report"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Visualize and fill missing values
+library("Amelia")
+# Visualize outliers
+library("mvoutlier")
+# Easier manipulation
+library("dplyr")
+# Plot tools
+library("ggplot2")
+# Correlation matrix
+library("Hmisc")
+# Variety of models
+library("caret")
+library("e1071")
+# Plot decision tree
+library("rattle")
+library("rpart.plot")
+library("RColorBrewer")
+
+data<-read.csv("/Users/thomas-legrand/Documents/DCU/Data Analytics/Assignment-1/iris_with_missing_data.csv", sep=",")
+```
+
+## Problem recognition
+
+We want to be able to know what species a flower belongs to, according to 4 parameters concerning the sepal and the petal.
+
+## Outlook of the data
+
+```{r head, echo=FALSE}
+head(data)
+data(data)
+```
+
+We notice that some data are missing.
+```{r missmap, echo=FALSE}
+missmap(data)
+```
+
+Thanks to the Amelia package, we can fill the missing data using the expectation–maximization (EM) algorithm.
+```{r amelia, include=FALSE}
+a.out<-amelia(data, m = 1, idvars='Species')
+amelia<-write.amelia(obj=a.out, file.stem = "amelia")
+amelia1<-read.csv("~/Documents/DCU/Data Analytics/Assignment-1/amelia1.csv")
+amelia1<-select(amelia1, Sepal.Length:Species)
+```
+
+
+Let's split randomly the data into 2 parts : a training and a testing dataset.
+By default, createDataPartition does a stratified random split of the data.
+```{r separate}
+inTrain = createDataPartition(amelia1$Species, p = 2/3, list = FALSE)
+dfTrain=amelia1[inTrain,]
+dfTest=amelia1[-inTrain,]
+```
+
+## Exploration of the data 
+
+```{r describe, echo=FALSE}
+summary(dfTrain)
+plot(dfTrain)
+```
+
+## Analysis
+
+### Comparison using qqplot
+
+```{r comparison, echo=FALSE}
+qplot(Species, Sepal.Length, data=dfTrain, geom=c("boxplot", "jitter"), 
+   fill=Species)
+qplot(Species, Sepal.Width, data=dfTrain, geom=c("boxplot", "jitter"), 
+   fill=Species)
+qplot(Species, Petal.Length, data=dfTrain, geom=c("boxplot", "jitter"), 
+   fill=Species)
+qplot(Species, Petal.Width, data=dfTrain, geom=c("boxplot", "jitter"), 
+   fill=Species)
+```
+
+We can notice that the petal characteristics are more discriminant than the sepal ones.
+Indeed, the setosa is way different than the 2 others species.
+
+### Looking for correlation
+```{r correlation, echo=FALSE}
+# Hmisc package
+rcorr(as.matrix(select(dfTrain, Sepal.Length:Petal.Width)))
+```
+
+It is clear that the petal width and the petal length are higly corrolated. 
+The sepal length is corrolated with the petal length and width.
+
+### Classification
+We want to classify the data in 3 classes. 
+
+#### Decision Tree
+
+```{r tree, echo=FALSE}
+tree.fit <- rpart(Species ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width, method="class", data=dfTrain)
+tree.model <- predict(tree.fit, dfTest, type="class")
+fancyRpartPlot(tree.fit)
+```
+
+#### Naive Bayes Classifier
+
+```{r naive}
+bayes.fit<-naiveBayes(dfTrain[,1:4], dfTrain[,5]) 
+bayes.model<-predict(bayes.fit, dfTest[,-5])
+```
+
+#### SVM
+
+```{r tune, echo=FALSE}
+tune.svm(Species~., data = dfTrain, gamma = 10^(-6:-1), cost = 10^(-1:1))
+```
+
+Let's build a svm model with a radial kernel to predict species using C=10 and gamma=0.01, which were the best values according the tune() function run before.
+
+```{r svm}
+svm.model<-svm(Species~., data=dfTrain, gamma = 0.01, cost = 10) 
+svm.pred <- predict(svm.model, dfTest[,-5])
+```
+
+
+## Results
+
+### Decision Tree
+
+```{r resultsTree, echo=FALSE}
+(table(tree.model, dfTest$Species)/16)*100
+```
+
+We can see that despite its simplicity the results are quite good.
+As we expected, the difficulty was about distinguishing versicolor and virginica.
+
+### Naive Bayes Classifier
+
+```{r resultsNB, echo=FALSE}
+(table(bayes.model, dfTest[,5])/16)*100
+```
+
+The Naive Bayes classifier seems to have better performance.
+
+### SVM
+
+```{r resultsSvm, echo=FALSE}
+(table(pred = svm.pred, true = dfTest[,5])/16)*100
+```
